@@ -1,198 +1,68 @@
-// Elements
-const display = document.getElementById("display");
-const historyList = document.getElementById("historyList");
-const themeSwitch = document.getElementById("themeSwitch");
+let startTime, updatedTime, difference, tInterval;
+let running = false;
+let lapCounter = 1;
 
-// State
-let expression = "";
-let undoStack = [];                // for undoing current input changes
-let deletedHistoryStack = [];      // in-memory stack of recently deleted history entries (not persisted)
+const display = document.getElementById('display');
+const startBtn = document.getElementById('start');
+const pauseBtn = document.getElementById('pause');
+const resetBtn = document.getElementById('reset');
+const lapBtn = document.getElementById('lap');
+const lapsList = document.getElementById('laps');
 
-/* ---------------------------
-   Display & input functions
-   --------------------------- */
-function updateDisplay() {
-  display.innerText = expression || "0";
-}
-
-function pushUndo() {
-  // Save current expression snapshot for undo BEFORE change
-  undoStack.push(expression);
-  // Optionally limit undo stack size
-  if (undoStack.length > 100) undoStack.shift();
-}
-
-function appendNumber(num) {
-  pushUndo();
-  expression += num;
-  updateDisplay();
-}
-
-function appendOperator(op) {
-  // avoid consecutive operators (simple guard)
-  if (expression === "") return;
-  const last = expression.slice(-1);
-  if (["+", "-", "*", "/"].includes(last)) {
-    pushUndo();
-    expression = expression.slice(0, -1) + op;
-  } else {
-    pushUndo();
-    expression += op;
-  }
-  updateDisplay();
-}
-
-function clearDisplay() {
-  if (expression === "") return;
-  pushUndo();
-  expression = "";
-  updateDisplay();
-}
-
-function backspace() {
-  if (expression === "") return;
-  pushUndo();
-  expression = expression.slice(0, -1);
-  updateDisplay();
-}
-
-function undoCurrent() {
-  if (undoStack.length === 0) {
-    // nothing to undo
-    return;
-  }
-  expression = undoStack.pop();
-  updateDisplay();
-}
-
-/* ---------------------------
-   Calculation & History
-   --------------------------- */
-function calculate() {
-  if (!expression) return;
-  try {
-    // Evaluate safely enough for this simple calculator
-    let result = eval(expression);
-    // Save to history
-    const entry = `${expression} = ${result}`;
-    addToHistory(entry);
-    // Reset expression to result so user can continue
-    pushUndo();
-    expression = result.toString();
-    updateDisplay();
-  } catch (err) {
-    pushUndo();
-    expression = "";
-    display.innerText = "Error";
+function start() {
+  if (!running) {
+    startTime = new Date().getTime() - (difference || 0);
+    tInterval = setInterval(getShowTime, 1);
+    running = true;
   }
 }
 
-function addToHistory(entry) {
-  // Add to UI
-  const li = document.createElement("li");
-  li.innerText = entry;
-  historyList.prepend(li);
-
-  // Save to localStorage (most recent first)
-  let history = JSON.parse(localStorage.getItem("calcHistory")) || [];
-  history.unshift(entry);
-  localStorage.setItem("calcHistory", JSON.stringify(history));
-}
-
-function loadHistory() {
-  // Load from localStorage and display
-  const saved = JSON.parse(localStorage.getItem("calcHistory")) || [];
-  historyList.innerHTML = "";
-  for (const entry of saved) {
-    const li = document.createElement("li");
-    li.innerText = entry;
-    historyList.appendChild(li);
+function pause() {
+  if (running) {
+    clearInterval(tInterval);
+    difference = new Date().getTime() - startTime;
+    running = false;
   }
 }
 
-function clearHistory() {
-  // Move visible items into deletedHistoryStack (LIFO)
-  const items = Array.from(historyList.querySelectorAll("li")).map(li => li.innerText);
-  if (items.length === 0) return;
-  // store them reverse so the last visible becomes lastDeleted
-  deletedHistoryStack.push(...items);
-  // remove from UI
-  historyList.innerHTML = "";
-  // remove from storage as well (so "Load From Storage" won't restore those)
-  // If you want to permanently delete them from storage, remove them entirely:
-  localStorage.removeItem("calcHistory");
+function reset() {
+  clearInterval(tInterval);
+  running = false;
+  display.textContent = "00:00:00.000";
+  difference = 0;
+  lapsList.innerHTML = "";
+  lapCounter = 1;
 }
 
-function restoreLastDeleted() {
-  if (deletedHistoryStack.length === 0) {
-    alert("No recently deleted history to restore.");
-    return;
+function lap() {
+  if (running) {
+    const lapTime = display.textContent;
+    const li = document.createElement('li');
+    li.textContent = `Lap ${lapCounter}: ${lapTime}`;
+    li.classList.add("lap-item");
+    lapsList.appendChild(li);
+    lapCounter++;
   }
-  const last = deletedHistoryStack.pop();
-  // Add to UI
-  const li = document.createElement("li");
-  li.innerText = last;
-  historyList.prepend(li);
-  // Add back to storage (unshift)
-  let history = JSON.parse(localStorage.getItem("calcHistory")) || [];
-  history.unshift(last);
-  localStorage.setItem("calcHistory", JSON.stringify(history));
 }
 
-/* ---------------------------
-   Keyboard support
-   --------------------------- */
-document.addEventListener("keydown", (e) => {
-  // Prevent browser default for Backspace (avoid navigating back)
-  if (e.key === "Backspace") {
-    e.preventDefault();
-    backspace();
-    return;
-  }
+function getShowTime() {
+  updatedTime = new Date().getTime();
+  difference = updatedTime - startTime;
 
-  // Ctrl+Z for undo current
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
-    e.preventDefault();
-    undoCurrent();
-    return;
-  }
+  let hours = Math.floor((difference / (1000 * 60 * 60)) % 24);
+  let minutes = Math.floor((difference / (1000 * 60)) % 60);
+  let seconds = Math.floor((difference / 1000) % 60);
+  let milliseconds = difference % 1000;
 
-  if (e.key >= "0" && e.key <= "9") {
-    appendNumber(e.key);
-    return;
-  }
+  hours = hours < 10 ? "0" + hours : hours;
+  minutes = minutes < 10 ? "0" + minutes : minutes;
+  seconds = seconds < 10 ? "0" + seconds : seconds;
+  milliseconds = milliseconds.toString().padStart(3, '0');
 
-  if (["+", "-", "*", "/"].includes(e.key)) {
-    appendOperator(e.key);
-    return;
-  }
+  display.textContent = `${hours}:${minutes}:${seconds}.${milliseconds}`;
+}
 
-  if (e.key === "Enter") {
-    e.preventDefault();
-    calculate();
-    return;
-  }
-
-  if (e.key === "Escape") {
-    clearDisplay();
-    return;
-  }
-
-  if (e.key === ".") {
-    appendNumber(".");
-    return;
-  }
-});
-
-/* ---------------------------
-   Dark mode toggle
-   --------------------------- */
-themeSwitch.addEventListener("change", (e) => {
-  document.body.classList.toggle("dark", e.target.checked);
-});
-
-/* ---------------------------
-   Init
-   --------------------------- */
-loadHistory();
-updateDisplay();
+startBtn.addEventListener('click', start);
+pauseBtn.addEventListener('click', pause);
+resetBtn.addEventListener('click', reset);
+lapBtn.addEventListener('click', lap);
